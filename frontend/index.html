@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real Estate Toolkit</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        'primary': '#10b981', // Emerald green
+                        'secondary': '#f97316', // Orange
+                        'background': '#f3f4f6', // Light gray background
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .container-shadow {
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+        .loading-spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #f97316;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 6px;
+            background: #d1d5db;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 5px;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #10b981;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 2px rgba(0,0,0,0.2);
+        }
+        /* Active link styling */
+        .nav-link.active {
+            border-bottom: 3px solid #f97316; /* secondary */
+            font-weight: 600;
+            color: #1f2937; /* gray-800 */
+        }
+        
+        /* New style for the iframe interaction */
+        .portfolio-preview {
+            position: relative;
+            height: 400px; /* Fixed height for the preview */
+            overflow: hidden;
+            cursor: pointer;
+            transition: transform 0.2s ease-in-out;
+        }
+        .portfolio-preview:hover:not([data-state="confirmation"]) {
+            transform: scale(1.005);
+        }
+        .portfolio-iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            /* Crucial: Allows click to pass through to the container for the two-step interaction */
+            pointer-events: none; 
+        }
+        .confirmation-text {
+            cursor: pointer;
+            /* Styling applied via Tailwind in HTML */
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+
+    <nav class="bg-white shadow-md">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <span class="text-2xl font-bold text-primary">GenAI-Powered Real Estate Toolkit</span>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <a href="#home" id="nav-home" class="nav-link text-gray-500 hover:text-gray-800 px-3 py-2 text-sm font-medium transition duration-150 ease-in-out">Price Predictor & Suggestions</a>
+                    <a href="#calculator" id="nav-calculator" class="nav-link text-gray-500 hover:text-gray-800 px-3 py-2 text-sm font-medium transition duration-150 ease-in-out">EMI/Mortgage Calculator</a>
+                    <a href="#acknowledgements" id="nav-acknowledgements" class="nav-link text-gray-500 hover:text-gray-800 px-3 py-2 text-sm font-medium transition duration-150 ease-in-out">Acknowledgements</a>
+                    <a href="#about" id="nav-about" class="nav-link text-gray-500 hover:text-gray-800 px-3 py-2 text-sm font-medium transition duration-150 ease-in-out">About the Dev</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main id="app-container" class="p-8">
+        <div class="max-w-4xl mx-auto bg-white p-8 rounded-xl container-shadow">
+            <h1 class="text-3xl font-bold text-gray-800">Loading...</h1>
+        </div>
+    </main>
+
+    <script>
+        // --- API & GLOBAL CONFIG ---
+        const API_PREDICT_URL = "http://127.0.0.1:8000/predict_price"; 
+        const API_SUGGESTIONS_BASE_URL = "http://127.0.0.1:8000/get_suggestions";
+        const POLLING_INTERVAL = 2000;
+        const PORTFOLIO_URL = "https://bhaumik-yadav.vercel.app/";
+
+        const appContainer = document.getElementById('app-container');
+        const navLinks = document.querySelectorAll('.nav-link');
+        
+        // --- UTILITY FUNCTIONS ---
+
+        const formatNumber = (num) => {
+            return Math.round(num).toLocaleString('en-IN');
+        };
+
+        const setActiveLink = (hash) => {
+            navLinks.forEach(link => {
+                link.classList.remove('active');
+                if (link.getAttribute('href') === hash) {
+                    link.classList.add('active');
+                }
+            });
+        };
+
+        // --- EMI CALCULATOR LOGIC ---
+
+        function calculateEMI(event) {
+            const P = parseFloat(document.getElementById('loanAmount').value);
+            const AnnualR = parseFloat(document.getElementById('annualInterestRate').value);
+            const T = parseFloat(document.getElementById('loanTenure').value);
+
+            const monthlyEMIElement = document.getElementById('monthlyEMI');
+            const totalPayableElement = document.getElementById('totalPayable');
+            const totalInterestElement = document.getElementById('totalInterest');
+            const interestPercentageElement = document.getElementById('interestPercentage');
+            
+            // Synchronize range and number inputs
+            if (event) {
+                if (event.target.type === 'range') {
+                    document.getElementById(event.target.id + 'Input').value = event.target.value;
+                } else if (event.target.type === 'number') {
+                    document.getElementById(event.target.id.replace('Input', '')).value = event.target.value;
+                }
+            }
+            
+            if (isNaN(P) || P <= 0 || isNaN(AnnualR) || AnnualR < 0 || isNaN(T) || T <= 0) {
+                monthlyEMIElement.textContent = '₹0';
+                totalPayableElement.textContent = '₹0';
+                totalInterestElement.textContent = '₹0';
+                interestPercentageElement.textContent = '0.00%';
+                return;
+            }
+
+            const N = T * 12; // Loan tenure in months
+            const R = AnnualR / 12 / 100; // Monthly interest rate
+
+            let EMI = 0;
+            let TotalPayable = 0;
+            let TotalInterest = 0;
+            let InterestPercent = 0;
+
+            if (R > 0) {
+                EMI = P * R * Math.pow((1 + R), N) / (Math.pow((1 + R), N) - 1);
+                TotalPayable = EMI * N;
+                TotalInterest = TotalPayable - P;
+                InterestPercent = (TotalInterest / P) * 100;
+            } else {
+                EMI = P / N;
+                TotalPayable = P;
+                TotalInterest = 0;
+                InterestPercent = 0;
+            }
+
+            // Update UI
+            monthlyEMIElement.textContent = `₹${formatNumber(EMI)}`;
+            totalPayableElement.textContent = `₹${formatNumber(TotalPayable)}`;
+            totalInterestElement.textContent = `₹${formatNumber(TotalInterest)}`;
+            interestPercentageElement.textContent = `${InterestPercent.toFixed(2)}%`;
+        }
+        
+        function setupCalculatorListeners() {
+            // Attach event listeners to all relevant inputs
+            ['loanAmount', 'annualInterestRate', 'loanTenure'].forEach(id => {
+                const range = document.getElementById(id);
+                const input = document.getElementById(id + 'Input');
+                if (range) range.addEventListener('input', calculateEMI);
+                if (input) input.addEventListener('input', calculateEMI);
+            });
+            // Initial run
+            calculateEMI();
+        }
+
+        // --- PRICE PREDICTOR & SUGGESTION LOGIC ---
+        
+        function resetPredictionUI(elements) {
+            elements.predictedPrice.textContent = '$---';
+            elements.initialMessage.textContent = 'Awaiting prediction...';
+            elements.initialMessage.classList.remove('text-red-600', 'text-primary', 'font-bold');
+            elements.initialMessage.classList.add('text-gray-500');
+            elements.suggestionsList.innerHTML = '';
+            elements.suggestionsList.classList.add('hidden');
+            elements.errorDisplay.classList.add('hidden');
+        }
+
+        function getFormData(form) {
+            const data = {};
+            const inputs = form.querySelectorAll('input');
+            inputs.forEach(input => {
+                let value = input.value;
+                if (input.type === 'number' || input.type === 'range') {
+                    value = input.step && input.step.includes('.') ? parseFloat(value) : parseInt(value);
+                }
+                data[input.name] = value;
+            });
+            return data;
+        }
+
+        async function pollSuggestions(taskId, elements) {
+            
+            const intervalId = setInterval(async () => {
+                elements.initialMessage.textContent = `Waiting for GenAI to produce actionable suggestions...`;
+                elements.initialMessage.classList.remove('text-red-600', 'text-gray-500');
+                elements.initialMessage.classList.add('text-secondary', 'font-semibold');
+
+                try {
+                    const response = await fetch(`${API_SUGGESTIONS_BASE_URL}/${taskId}`);
+                    const result = await response.json();
+
+                    if (!response.ok) {
+                         clearInterval(intervalId);
+                         elements.initialMessage.textContent = `Error fetching suggestions: ${result.detail || 'Unknown error'}`;
+                         elements.initialMessage.classList.remove('text-secondary', 'font-semibold');
+                         elements.initialMessage.classList.add('text-red-600');
+                         return;
+                    }
+
+                    if (result.status === 'complete') {
+                        clearInterval(intervalId);
+                        const suggestionsData = result.suggestions; 
+                        
+                        elements.initialMessage.textContent = 'AI Analysis Complete:';
+                        elements.initialMessage.classList.remove('text-secondary', 'font-semibold');
+                        elements.initialMessage.classList.add('text-primary', 'font-bold');
+                        
+                        elements.suggestionsList.innerHTML = ''; 
+                        elements.suggestionsList.classList.remove('hidden');
+
+                        for (let i = 1; i <= 5; i++) {
+                            const key = `suggestion_${i}`;
+                            const listItem = document.createElement('li');
+                            listItem.textContent = suggestionsData[key];
+                            elements.suggestionsList.appendChild(listItem);
+                        }
+
+                    } else if (result.status === 'error') {
+                        clearInterval(intervalId);
+                        elements.initialMessage.textContent = `AI Error: ${result.error_detail || 'An unknown error occurred during AI analysis.'}`;
+                        elements.initialMessage.classList.remove('text-secondary', 'font-semibold');
+                        elements.initialMessage.classList.add('text-red-600');
+                    }
+                    
+                } catch (error) {
+                    clearInterval(intervalId);
+                    console.error("Polling Error:", error);
+                    elements.initialMessage.textContent = 'Network error during polling.';
+                    elements.initialMessage.classList.remove('text-secondary', 'font-semibold');
+                    elements.initialMessage.classList.add('text-red-600');
+                }
+            }, POLLING_INTERVAL);
+        }
+
+        function setupPredictionListeners() {
+            const form = document.getElementById('predictionForm');
+            if (!form) return;
+
+            const elements = {
+                submitBtn: document.getElementById('submitBtn'),
+                loadingIndicator: document.getElementById('loadingIndicator'),
+                predictedPrice: document.getElementById('predictedPrice'),
+                suggestionsList: document.getElementById('suggestionsList'),
+                initialMessage: document.getElementById('initialMessage'),
+                errorDisplay: document.getElementById('errorDisplay'),
+                errorMessage: document.getElementById('errorMessage')
+            };
+            
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                if (!form.checkValidity()) { return; }
+
+                resetPredictionUI(elements);
+                
+                const requestData = getFormData(form);
+                elements.submitBtn.disabled = true;
+                elements.submitBtn.querySelector('span').textContent = 'Predicting...';
+                elements.loadingIndicator.classList.remove('hidden');
+
+                try {
+                    const response = await fetch(API_PREDICT_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(requestData),
+                    });
+
+                    const result = await response.json();
+
+                    if (!response.ok) {
+                        const detail = result.detail || 'An unknown error occurred on the server.';
+                        throw new Error(detail);
+                    }
+
+                    const price = 89*(result.predicted_price.toFixed(2)); // Value of 1$ ~= ₹89 as of 28th Oct 2025 (dollar price)
+                    const taskId = result.task_id; 
+
+                    elements.predictedPrice.textContent = `₹${parseFloat(price).toLocaleString()}`;
+                    elements.initialMessage.textContent = 'Price predicted successfully. Starting AI analysis...';
+                    
+                    pollSuggestions(taskId, elements);
+
+                } catch (error) {
+                    console.error("Prediction Error:", error);
+                    elements.errorDisplay.classList.remove('hidden');
+                    elements.errorMessage.textContent = error.message || 'Network error or server unavailable.';
+                    elements.predictedPrice.textContent = '$ERROR';
+                    elements.initialMessage.textContent = 'Could not fetch prediction.';
+                } finally {
+                    elements.submitBtn.disabled = false;
+                    elements.submitBtn.querySelector('span').textContent = 'Get Price & Suggestions';
+                    elements.loadingIndicator.classList.add('hidden');
+                }
+            });
+            
+            // Auto-fill example data
+            function fillExampleData() {
+                document.getElementById('sqft_living').value = 2500;
+                document.getElementById('grade').value = 9;
+                document.getElementById('bathrooms').value = 2.5;
+                document.getElementById('bedrooms').value = 4;
+                document.getElementById('age').value = 15;
+                document.getElementById('floors').value = 2.0;
+                document.getElementById('sqft_basement').value = 500;
+                document.getElementById('view').value = 2;
+                document.getElementById('zipcode').value = 98004;
+                document.getElementById('sqft_lot15').value = 7500;
+                document.getElementById('sqft_lot').value = 8500;
+                document.getElementById('condition').value = 4;
+                document.getElementById('waterfront').value = 0;
+                document.getElementById('years_since_last_renovation').value = 5;
+            }
+            fillExampleData();
+        }
+
+        // --- ABOUT PAGE LISTENERS ---
+        function setupAboutListeners() {
+            const container = document.getElementById('portfolio-preview-container');
+            const messageDiv = document.getElementById('portfolio-confirmation-message');
+            const confirmationText = document.getElementById('confirmation-text-link');
+            
+            if (!container || !messageDiv || !confirmationText) return;
+
+            // Step 1: Click anywhere on the container to show confirmation message
+            container.addEventListener('click', (e) => {
+                // Check if we are in the initial 'preview' state
+                if (container.getAttribute('data-state') === 'preview') {
+                    // Show confirmation message
+                    messageDiv.classList.remove('hidden');
+                    container.setAttribute('data-state', 'confirmation');
+                    e.stopPropagation(); // Prevent immediate bubbling
+
+                } else if (container.getAttribute('data-state') === 'confirmation' && e.target === container) {
+                    // If they click the container but miss the link, reset the state
+                    messageDiv.classList.add('hidden');
+                    container.setAttribute('data-state', 'preview');
+                }
+            });
+
+            // Step 2: Click confirmation message to open the link
+            confirmationText.addEventListener('click', (event) => {
+                event.stopPropagation(); // Stop click event from bubbling up to container
+                window.open(PORTFOLIO_URL, '_blank');
+                
+                // Reset state after opening the link
+                messageDiv.classList.add('hidden');
+                container.setAttribute('data-state', 'preview');
+            });
+        }
+        
+        // --- VIEW RENDERING FUNCTIONS ---
+
+        const renderHome = () => {
+            appContainer.innerHTML = `
+                <div class="max-w-6xl mx-auto bg-white p-8 rounded-xl container-shadow">
+                    <h1 class="text-3xl font-bold text-gray-800 mb-6 border-b pb-3">
+                        🏠 House Price Prediction & Value-Add AI Suggestions
+                    </h1>
+                    <div class="grid md:grid-cols-2 gap-8">
+                        <div>
+                            <h2 class="text-xl font-semibold text-primary mb-4">Input House Features</h2>
+                            <form id="predictionForm" class="space-y-4">
+                                
+                                <div class="grid grid-cols-2 gap-4">
+                                    
+                                    <div>
+                                        <label for="sqft_living" class="block text-sm font-medium text-gray-700">Living Area (sqft)</label>
+                                        <input type="number" id="sqft_living" name="sqft_living" required class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:border-primary focus:ring-primary p-2">
+                                    </div>
+                                    
+                                    <div>
+                                        <label for="grade" class="block text-sm font-medium text-gray-700">Grade (1-13)</label>
+                                        <input type="number" id="grade" name="grade" min="1" max="13" required class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:border-primary focus:ring-primary p-2">
+                                    </div>
+                                    
+                                    <div>
+                                        <label for="bathrooms" class="block text-sm font-medium text-gray-700">Bathrooms</label>
+                                        <input type="number" step="0.5" id="bathrooms" name="bathrooms" min="0" required class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:border-primary focus:ring-primary p-2">
+                                    </div>
+                                    
+                                    <div>
+                                        <label for="bedrooms" class="block text-sm font-medium text-gray-700">Bedrooms</label>
+                                        <input type="number" id="bedrooms" name="bedrooms" min="0" required class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:border-primary focus:ring-primary p-2">
+                                    </div>
+                                    
+                                    <div>
+                                        <label for="age" class="block text-sm font-medium text-gray-700">House Age (Years)</label>
+                                        <input type="number" id="age" name="age" min="0" required class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:border-primary focus:ring-primary p-2">
+                                    </div>
+                                    
+                                    <div>
+                                        <label for="floors" class="block text-sm font-medium text-gray-700">Floors</label>
+                                        <input type="number" step="0.5" id="floors" name="floors" min="1" required class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:border-primary focus:ring-primary p-2">
+                                    </div>
+                                    
+                                    <div>
+                                        <label for="sqft_basement" class="block text-sm font-medium text-gray-700">Basement (sqft)</label>
+                                        <input type="number" id="sqft_basement" name="sqft_basement" min="0" required class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:border-primary focus:ring-primary p-2">
+                                    </div>
+                                    
+                                    <div>
+                                        <label for="view" class="block text-sm font-medium text-gray-700">View Rating (0-4)</label>
+                                        <input type="number" id="view" name="view" min="0" max="4" required class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:border-primary focus:ring-primary p-2">
+                                    </div>
+                                    
+                                    <div>
+                                        <label for="zipcode" class="block text-sm font-medium text-gray-700">ZIP Code</label>
+                                        <input type="number" id="zipcode" name="zipcode" required class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:border-primary focus:ring-primary p-2">
+                                    </div>
+                                    
+                                    <div>
+                                        <label for="sqft_lot15" class="block text-sm font-medium text-gray-700">Neighbor Lot (sqft)</label>
+                                        <input type="number" id="sqft_lot15" name="sqft_lot15" required class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:border-primary focus:ring-primary p-2">
+                                    </div>
+                                    
+                                    <div>
+                                        <label for="sqft_lot" class="block text-sm font-medium text-gray-700">Lot Size (sqft)</label>
+                                        <input type="number" id="sqft_lot" name="sqft_lot" required class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:border-primary focus:ring-primary p-2">
+                                    </div>
+                                    
+                                    <div>
+                                        <label for="condition" class="block text-sm font-medium text-gray-700">Condition (1-5)</label>
+                                        <input type="number" id="condition" name="condition" min="1" max="5" required class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:border-primary focus:ring-primary p-2">
+                                    </div>
+
+                                    <div>
+                                        <label for="waterfront" class="block text-sm font-medium text-gray-700">Waterfront (0=No, 1=Yes)</label>
+                                        <input type="number" id="waterfront" name="waterfront" min="0" max="1" required class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:border-primary focus:ring-primary p-2">
+                                    </div>
+                                    
+                                    <div>
+                                        <label for="years_since_last_renovation" class="block text-sm font-medium text-gray-700">Years Since Reno (0 if none)</label>
+                                        <input type="number" id="years_since_last_renovation" name="years_since_last_renovation" min="0" required class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:border-primary focus:ring-primary p-2">
+                                    </div>
+                                </div>
+                                
+                                <button type="submit" id="submitBtn" class="w-full flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-base font-medium text-white bg-primary hover:bg-emerald-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition duration-150 ease-in-out">
+                                    <span class="mr-2">Get Price & Suggestions</span>
+                                    <div id="loadingIndicator" class="loading-spinner hidden"></div>
+                                </button>
+                            </form>
+
+                            <div id="errorDisplay" class="hidden mt-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg" role="alert">
+                                <p class="font-bold">Error!</p>
+                                <p id="errorMessage" class="text-sm"></p>
+                            </div>
+                        </div>
+
+                        <div class="md:border-l md:pl-8">
+                            <h2 class="text-xl font-semibold text-secondary mb-4">Predicted Price</h2>
+                            <div class="p-4 bg-gray-100 rounded-lg">
+                                <p class="text-gray-500 text-sm">Estimated Market Value:</p>
+                                <p id="predictedPrice" class="text-4xl font-extrabold text-primary">₹---</p>
+                            </div>
+
+                            <h2 class="text-xl font-semibold text-secondary mt-6 mb-4">Value-Added Suggestions</h2>
+                            <div id="geminiSuggestions" class="text-gray-600 text-sm italic bg-gray-50 p-4 rounded-lg border border-dashed border-gray-300 min-h-32">
+                                <p id="initialMessage" class="text-gray-500">Fill out the form and click 'Get Price & Suggestions' to receive AI-powered advice on how to optimize your listing based on the predicted value.</p>
+                                <ul id="suggestionsList" class="list-disc list-inside space-y-2 mt-2 hidden"></ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            // Re-attach listeners after rendering
+            setupPredictionListeners();
+        };
+        
+        const renderCalculator = () => {
+             appContainer.innerHTML = `
+                <div class="max-w-4xl mx-auto bg-white p-8 rounded-xl container-shadow">
+                    <h1 class="text-3xl font-bold text-gray-800 mb-6 border-b pb-3">
+                        🧮 EMI/Mortgage Repayment Calculator
+                    </h1>
+                    <p class="text-gray-600 mb-6">Estimate your monthly loan payments and the total interest cost for your potential house purchase.</p>
+                    <div id="emiCalculator" class="space-y-6">
+
+                        <div>
+                            <div class="flex justify-between items-center text-sm font-medium text-gray-700">
+                                <label for="loanAmount">Principal Loan Amount (₹)</label>
+                                <input type="number" id="loanAmountInput" value="1000000" min="10000" max="200000000" step="10000" class="w-1/3 text-right border-gray-300 rounded-md shadow-sm focus:border-secondary focus:ring-secondary p-1">
+                            </div>
+                            <input type="range" id="loanAmount" min="10000" max="200000000" step="10000" value="1000000">
+                        </div>
+
+                        <div>
+                            <div class="flex justify-between items-center text-sm font-medium text-gray-700">
+                                <label for="annualInterestRate">Annual Interest Rate (R - %)</label>
+                                <input type="number" id="annualInterestRateInput" value="7.5" step="0.1" min="0.5" max="30" class="w-1/3 text-right border-gray-300 rounded-md shadow-sm focus:border-secondary focus:ring-secondary p-1">
+                            </div>
+                            <input type="range" id="annualInterestRate" min="0.5" max="30" step="0.1" value="7.5">
+                        </div>
+
+                        <div>
+                            <div class="flex justify-between items-center text-sm font-medium text-gray-700">
+                                <label for="loanTenure">Loan Tenure (N - Years)</label>
+                                <input type="number" id="loanTenureInput" value="12" min="1" max="30" class="w-1/3 text-right border-gray-300 rounded-md shadow-sm focus:border-secondary focus:ring-secondary p-1">
+                            </div>
+                            <input type="range" id="loanTenure" min="1" max="30" step="1" value="12">
+                        </div>
+
+                        <div class="pt-6 border-t border-gray-200 grid grid-cols-3 gap-6">
+                            
+                            <div class="p-3 bg-white rounded-lg border border-primary/50 shadow-inner">
+                                <p class="text-gray-500 text-xs">Monthly EMI</p>
+                                <p id="monthlyEMI" class="text-2xl font-bold text-primary">₹0</p>
+                            </div>
+                            
+                            <div class="p-3 bg-white rounded-lg border border-primary/50 shadow-inner">
+                                <p class="text-gray-500 text-xs">Total Payable</p>
+                                <p id="totalPayable" class="text-2xl font-bold text-primary">₹0</p>
+                            </div>
+                            
+                            <div class="relative p-3 bg-white rounded-lg border border-secondary/50 shadow-inner">
+                                <div class="absolute -top-3 left-3 bg-secondary text-white text-xs font-bold px-2 py-0.5 rounded-full" id="interestPercentage">0.00%</div>
+                                <p class="text-gray-500 text-xs pt-2">Total Interest Paid</p>
+                                <p id="totalInterest" class="text-2xl font-bold text-secondary">₹0</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            // Re-attach listeners after rendering
+            setupCalculatorListeners();
+        };
+
+        const renderAcknowledgements = () => {
+            appContainer.innerHTML = `
+                <div class="max-w-4xl mx-auto bg-white p-8 rounded-xl container-shadow space-y-8">
+                    <h1 class="text-3xl font-bold text-gray-800 mb-6 border-b pb-3">
+                        Acknowledgements & Technology Overview
+                    </h1>
+                    <p class="text-gray-700">
+                        This platform combines 'Machine Learning (ML)' and 'Generative AI (GenAI)' technologies to provide data-driven insights into residential property values and actionable recommendations for improving home appeal. The following sections outline the methodologies, tools and services used in development.
+                    </p>
+
+                    <div class="space-y-3">
+                        <h2 class="text-xl font-semibold text-primary border-b border-primary/20 pb-1">1. Classical Machine Learning (ML)</h2>
+                        <p class="text-gray-700">
+                            The 'House Price Prediction' feature utilizes a 'Random Forest Regressor (RFR)' — a classical ensemble learning method recognized for its robustness, accuracy and ability to capture complex, non-linear relationships within structured data.
+                        </p>
+                        
+                        <h3 class="font-semibold text-gray-800 mt-4">Objective:</h3>
+                        <p class="text-gray-700 pl-4">To estimate an indicative market value of a residential property based on its physical and locational features.</p>
+                        
+                        <h3 class="font-semibold text-gray-800 mt-4">Training Data:</h3>
+                        <p class="text-gray-700 pl-4">The model was trained on publicly available housing datasets (e.g., the King County, USA Housing Dataset or similar). The data includes variables such as property size, grade, condition, construction year, renovation status and geographic coordinates.</p>
+                        
+                        <h3 class="font-semibold text-gray-800 mt-4">Data Processing & Feature Engineering:</h3>
+                        <p class="text-gray-700 pl-4">Data was preprocessed through normalization, encoding of categorical variables and handling of missing values. Feature importance analysis was conducted to enhance interpretability and transparency.</p>
+                        
+                        <h3 class="font-semibold text-gray-800 mt-4">Model Evaluation:</h3>
+                        <p class="text-gray-700 pl-4">Model performance was validated using metrics such as the R² score, Mean Absolute Error (MAE) and Root Mean Squared Error (RMSE). Hyperparameters were fine-tuned using grid search for optimal generalization.</p>
+                        
+                        <h3 class="font-semibold text-gray-800 mt-4">Deployment:</h3>
+                        <p class="text-gray-700 pl-4">The trained model is persisted using 'Joblib/Pickle' and served through an API built with 'FastAPI (Python)' for real-time inference.</p>
+                        
+                        <p class="text-sm text-secondary italic pt-2">
+                            ⚙️ Note: The Random Forest algorithm was selected for its interpretability, efficiency on tabular datasets and ability to generalize effectively across diverse housing markets without GPU acceleration.
+                        </p>
+                    </div>
+
+                    <div class="pt-4 space-y-3">
+                        <h2 class="text-xl font-semibold text-primary border-b border-primary/20 pb-1">2. Generative AI (GenAI) for Value-Add Recommendations</h2>
+                        <p class="text-gray-700">
+                            The 'Value-Add Suggestions' module is powered by the 'Google Gemini API (Gemini 2.5 Flash model)'. This Large Language Model (LLM) is leveraged to provide context-aware, advisory insights that may help users identify potential improvements to their properties.
+                        </p>
+                        
+                        <h3 class="font-semibold text-gray-800 mt-4">Functionality:</h3>
+                        <p class="text-gray-700 pl-4">Based on the model’s price estimate and property attributes, the GenAI module generates suggestions such as home upgrades, renovation ideas and sustainability improvements that may enhance perceived market value.</p>
+
+                        <h3 class="font-semibold text-gray-800 mt-4">System Architecture:</h3>
+                        <p class="text-gray-700 pl-4">The GenAI service operates asynchronously using 'FastAPI Background Tasks' to ensure a responsive user experience. This architecture allows predictive and generative components to function independently and efficiently.</p>
+
+                        <h3 class="font-semibold text-gray-800 mt-4">Integration & Modularity:</h3>
+                        <p class="text-gray-700 pl-4">Communication with the Gemini API occurs via secure RESTful requests using JSON payloads. The system design allows for flexibility in switching or upgrading AI providers without affecting core functionality.</p>
+
+                        <h3 class="font-semibold text-gray-800 mt-4">Ethical Use Statement:</h3>
+                        <p class="text-gray-700 pl-4">AI-generated suggestions are advisory only and are not a substitute for professional evaluation or expertise. Efforts are made to ensure relevance and factual consistency, but users should independently verify all outputs.</p>
+                    </div>
+
+                    <div class="pt-4 space-y-3">
+                        <h2 class="text-xl font-semibold text-primary border-b border-primary/20 pb-1">3. Dataset & Model Training</h2>
+                        <p class="text-gray-700">
+                            The predictive model was trained on structured, non-personal datasets consisting of historical residential property transactions. Typical features include:
+                        </p>
+                        <ul class="list-disc list-inside text-gray-700 ml-4 space-y-1 pl-4">
+                            <li>Living and lot area (sqft)</li>
+                            <li>Property grade and condition</li>
+                            <li>Year built / renovated</li>
+                            <li>Latitude and longitude</li>
+                            <li>Sale price (target variable)</li>
+                        </ul>
+                        
+                        <h3 class="font-semibold text-gray-800 mt-4">Training Methodology:</h3>
+                        <ul class="list-disc list-inside text-gray-700 ml-4 space-y-1 pl-4">
+                            <li>Outlier detection and data cleaning were performed to maintain data integrity.</li>
+                            <li>Encoding and normalization techniques were applied for model readiness.</li>
+                            <li>The dataset was split into training and validation sets (80/20) with cross-validation for consistency.</li>
+                        </ul>
+                        
+                        <h3 class="font-semibold text-gray-800 mt-4">Limitation Notice:</h3>
+                        <p class="text-gray-700 pl-4">Model predictions are derived from historical and publicly available data. Real-world market fluctuations, economic trends and regional variables are not directly encoded and therefore outputs should be interpreted as probabilistic estimates, not exact valuations.</p>
+                    </div>
+                    
+                    <div class="pt-4 space-y-3">
+                        <h2 class="text-xl font-semibold text-primary border-b border-primary/20 pb-1">4. Core Technologies & Architecture</h2>
+                        <ul class="list-disc list-inside text-gray-700 ml-4 space-y-1 pl-4">
+                            <li>'Backend Framework:' FastAPI (Python) — chosen for scalability, asynchronous operation and modular design.</li>
+                            <li>'Model Persistence:' Joblib / Pickle — for efficient model storage and loading.</li>
+                            <li>'Frontend Stack:' HTML5, Tailwind CSS and JavaScript — delivering a responsive 'Single Page Application (SPA)' interface.</li>
+                            <li>'API Layer:' RESTful architecture — enabling modular communication between ML prediction, GenAI suggestions and mortgage calculator microservices.</li>
+                        </ul>
+                    </div>
+
+                    <div class="pt-4 space-y-3">
+                        <h2 class="text-xl font-semibold text-primary border-b border-primary/20 pb-1">5. Responsible AI & Privacy Statement</h2>
+                        <p class="text-gray-700">
+                            This platform reflects the principles of 'Responsible AI' — combining automation and interpretability while respecting user privacy and ethical data use.
+                        </p>
+                        <ul class="list-disc list-inside text-gray-700 ml-4 space-y-1 pl-4">
+                            <li>Predictions are data-driven, not deterministic.</li>
+                            <li>Generative outputs are assistive and should be reviewed by qualified professionals.</li>
+                            <li>No personally identifiable information (PII) is stored, shared, or processed at any stage.</li>
+                        </ul>
+                    </div>
+
+                    <div class="pt-4 space-y-3">
+                        <h2 class="text-xl font-semibold text-primary border-b border-primary/20 pb-1">6. Disclaimers</h2>
+                        <p class="text-gray-700">
+                            To ensure transparency and compliance with best practices, the following statements apply to all outputs generated through this platform:
+                        </p>
+                        <h3 class="font-semibold text-gray-800 mt-4">Informational Use Only:</h3>
+                        <p class="text-gray-700 pl-4">The estimates and suggestions provided are intended solely for informational and educational purposes.</p>
+                        
+                        <h3 class="font-semibold text-gray-800 mt-4">No Professional Advice:</h3>
+                        <p class="text-gray-700 pl-4">The platform does not provide certified financial, investment, or real estate advice. Users should seek independent professional consultation before making decisions.</p>
+                        
+                        <h3 class="font-semibold text-gray-800 mt-4">Data Limitations:</h3>
+                        <p class="text-gray-700 pl-4">Model predictions are based on historical and publicly available data and may not accurately reflect current market conditions.</p>
+                        
+                        <h3 class="font-semibold text-gray-800 mt-4">Liability Disclaimer:</h3>
+                        <p class="text-gray-700 pl-4">No guarantees are made regarding the accuracy, completeness, or suitability of predictions or AI-generated content. The developer and associated entities assume no liability for actions taken based on this information.</p>
+                        
+                        <h3 class="font-semibold text-gray-800 mt-4">Third-Party API Use:</h3>
+                        <p class="text-gray-700 pl-4">The integration of the Google Gemini API is subject to Google’s Terms of Service. This project is independently developed and not affiliated with or endorsed by Google LLC or any of its subsidiaries.</p>
+                    </div>
+
+                    <div class="pt-4 space-y-3">
+                        <h2 class="text-xl font-semibold text-primary border-b border-primary/20 pb-1">7. Credits & Technology Stack</h2>
+                        <ul class="list-disc list-inside text-gray-700 ml-4 space-y-1 pl-4">
+                            <li>Machine Learning: Scikit-learn (Random Forest Regressor)</li>
+                            <li>Generative AI: Google Gemini API (Gemini 2.5 Flash Model)</li>
+                            <li>Backend: FastAPI (Python)</li>
+                            <li>Frontend: HTML/CSS (Tailwind CSS), JavaScript</li>
+                            <li>Utilities: Joblib, Pandas, NumPy, Requests</li>
+                            <li>Dataset: Publicly available datasets (e.g., King County, USA Housing Data or similar sources)</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="pt-4 space-y-3">
+                        <h2 class="text-xl font-semibold text-primary border-b border-primary/20 pb-1">8. Final Notice</h2>
+                        <p class="text-gray-700">
+                            This website is a demonstration and research project designed to showcase the integration of machine learning and generative AI in real estate analytics.
+                        </p>
+                        <p class="text-gray-700">
+                            All information is presented “as is”, without warranty of any kind, either express or implied.
+                        </p>
+                        <p class="text-gray-700">
+                            Use of this platform implies acceptance of these terms and understanding of its experimental nature.
+                        </p>
+                    </div>
+                </div>
+            `;
+        };
+
+        const renderAbout = () => {
+            appContainer.innerHTML = `
+                <div class="max-w-4xl mx-auto bg-white p-8 rounded-xl container-shadow space-y-6">
+                    <h1 class="text-3xl font-bold text-gray-800 mb-6 border-b pb-3">
+                        🧑‍💻 About the Developer
+                    </h1>
+                    <p class="text-gray-700 text-lg">
+                        This is a live preview of the developer's portfolio website. Click the image once to confirm opening in a new tab.
+                    </p>
+
+                    <div id="portfolio-preview-container" 
+                         class="portfolio-preview shadow-xl border-4 border-primary/50 rounded-xl" 
+                         data-state="preview">
+                        
+                        <!-- The iframe shows the live website preview -->
+                        <iframe id="portfolio-iframe" 
+                                src="${PORTFOLIO_URL}" 
+                                title="Developer Portfolio Preview" 
+                                class="portfolio-iframe rounded-lg">
+                        </iframe>
+                        
+                        <!-- The confirmation overlay -->
+                        <div id="portfolio-confirmation-message" 
+                             class="hidden absolute inset-0 bg-primary/95 flex items-center justify-center">
+                            
+                            <!-- The clickable link text -->
+                            <div id="confirmation-text-link" 
+                                 class="p-6 rounded-lg text-white font-semibold text-xl confirmation-text bg-secondary shadow-lg transition duration-150 ease-in-out hover:bg-orange-600">
+                                The link will open the developer's portfolio in a new tab.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            // Attach listeners for the two-step interaction
+            setupAboutListeners();
+        };
+
+
+        // --- ROUTING LOGIC ---
+
+        const routes = {
+            '#home': renderHome,
+            '#calculator': renderCalculator,
+            '#acknowledgements': renderAcknowledgements,
+            '#about': renderAbout
+        };
+
+        const router = () => {
+            const hash = window.location.hash || '#home';
+            const render = routes[hash];
+            
+            if (render) {
+                render();
+                setActiveLink(hash);
+            } else {
+                // Default to home if hash is invalid
+                window.location.hash = '#home';
+            }
+        };
+
+        // Event listeners for SPA routing
+        window.addEventListener('hashchange', router);
+        window.addEventListener('load', router);
+    </script>
+</body>
+</html>

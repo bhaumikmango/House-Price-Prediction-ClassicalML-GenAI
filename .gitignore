@@ -1,0 +1,6 @@
+Environment variables file containing secrets
+.env
+
+Virtual Environment
+.venv/
+pycache/
